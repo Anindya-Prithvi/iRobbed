@@ -12,6 +12,16 @@ class SimpleReceiver:
         print('Connected by', self.addr)
         # self.conn.setblocking(0)
 
+    def recvall(self, sock, n):
+    # Helper function to recv n bytes or return None if EOF is hit
+        data = bytearray()
+        while len(data) < n:
+            packet = sock.recv(n - len(data))
+            if not packet:
+                return None
+            data.extend(packet)
+        return data
+
     def receive(self):
         # receive header
         header = self.conn.recv(128)
@@ -20,7 +30,7 @@ class SimpleReceiver:
         # parse header
         size, frame = self.parse_header(header)
         # receive data
-        data = self.conn.recv(size)
+        data = self.recvall(self.conn, size)
         # parse data
         data = self.parse_data(data)
         return data, frame
@@ -42,6 +52,8 @@ if __name__ == "__main__":
     while True:
         data, frame = receiver.receive()
         if data is None:
-            break
+            break 
+            # can #goto 51...but that will be the worst case
+            # wontfix for now
         print(frame, data.shape)
     receiver.close()
