@@ -10,7 +10,7 @@ class SimpleReceiver:
         self.s.listen(5)
         self.conn, self.addr = self.s.accept()
         print('Connected by', self.addr)
-        self.conn.setblocking(0)
+        # self.conn.setblocking(0)
 
     def receive(self):
         # receive header
