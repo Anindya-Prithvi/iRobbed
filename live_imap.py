@@ -7,6 +7,7 @@ import signal
 import threading
 import matplotlib.pyplot as plt
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 
 class LiveImapApp:
@@ -16,6 +17,7 @@ class LiveImapApp:
     STOP_CAPTURE = 4
 
     def __init__(self,camera_config):
+        self.uploader = ThreadPoolExecutor(max_workers=1) # forced to remain sequential
         self.frame = 0
         self.capturing = False
         self._id = 0
@@ -107,12 +109,32 @@ class LiveImapApp:
         self.camera = self.scene.scene.view.get_camera()
         self.menu.set_enabled(LiveImapApp.CAPTURE,True)
 
-    def thread_post(data):
+    def thread_post(data, frame):
         #Post data to server
-        pass
+        import socket
+        # data is always np array
+        # frame is always int
+        # determine size of data
+        
+        # data serialized
+        data = data.tobytes()
+
+        # data size
+        size = len(data)
+
+        # create a header of 64 bytes and set it to the size of the data and frame number
+        header = f"{size:<64}{frame:<64}".encode('utf-8')
+
+        # create a socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(("192.168.3.95", 34512)) # listening server
+        s.send(header)
+        s.send(data)
+        s.close()
 
     def capture_rgbdT(self):
         pose = self.camera.get_model_matrix()
+        self.uploader.submit(self.thread_post,np.asarray(pose), frame=self.frame)
         
         self.scene.scene.scene.render_to_image(self.rgb_callback)
         self.scene.scene.scene.render_to_depth_image(self.depth_callback)
@@ -127,13 +149,12 @@ class LiveImapApp:
     def depth_callback(self,depth_image):
         depth = np.asarray(depth_image)
         print(self.frame,'done depth',self.depth.shape)
-
-
-
+        self.uploader.submit(self.thread_post,depth, frame=self.frame)
 
     def rgb_callback(self,rgb_image):
         rgb = np.asarray(rgb_image)
         print(self.frame,'done rgb',self.rgb.shape)
+        self.uploader.submit(self.thread_post,rgb, frame=self.frame)
 
 def main():
     camera_config = {
