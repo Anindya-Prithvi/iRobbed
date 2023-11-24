@@ -10,6 +10,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import socket
 
+DEBUG = False
+
 class LiveImapApp:
     LOAD_MESH = 1
     MENU_QUIT = 2
@@ -18,13 +20,14 @@ class LiveImapApp:
 
     def __init__(self,camera_config):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect(("192.168.3.95", 34512)) # listening server
+        if not DEBUG:
+            self.sock.connect(("192.168.3.95", 34512)) # listening server
         self.uploader = ThreadPoolExecutor(max_workers=1) # forced to remain sequential
         self.frame = 0
         self.capturing = False
         self._id = 0
         self.window = gui.Application.instance.create_window(
-            "Live IMAP Demo", camera_config["w"], (camera_config["h"] + 24))
+            "Live IMAP Demo", camera_config["w"], (camera_config["h"] + 28))
         self.scene = gui.SceneWidget()
         self.scene.scene = rendering.Open3DScene(self.window.renderer)
         self.scene.scene.set_background([1, 1, 1, 1])
@@ -72,7 +75,7 @@ class LiveImapApp:
                 
                 #Sending to Server
                 self.frame += 1
-                time.sleep(1)
+                time.sleep(3)
             print("[debug] Stop Capturing")
         threading.Thread(target=thread_capture).start()
     
@@ -111,10 +114,9 @@ class LiveImapApp:
         self.camera = self.scene.scene.view.get_camera()
         self.menu.set_enabled(LiveImapApp.CAPTURE,True)
 
-    def thread_post(self, data, frame):
+    def thread_post(self, data, frame, type):
         print('[socket] Posting...',frame,data.shape)
         #Post data to server
-        import socket
         # data is always np array
         # frame is always int
         # determine size of data
@@ -126,36 +128,42 @@ class LiveImapApp:
         size = len(data)
 
         # create a header of 64 bytes and set it to the size of the data and frame number
-        header = f"{size:<64}{frame:<64}".encode('utf-8')
+        header = f"{size:<64}{frame:<63}{type:<1}".encode('utf-8')
 
         # create a socket
         self.sock.sendall(header)
         self.sock.sendall(data)
+    
+    def get_pose(self):
+        pose = np.asarray(self.camera.get_model_matrix())
+        T = np.array([[1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]])
+        # return np.dot(T,pose)
+        print(pose.dtype)
+        return pose
 
     def capture_rgbdT(self):
-        pose = np.asarray(self.camera.get_model_matrix())
-        t = self.uploader.submit(self.thread_post, pose, self.frame)
-        print(t.result())
+        # pose = np.linalg.inv(np.asarray(self.camera.get_model_matrix()))
+        pose = self.get_pose()
+        print(pose)
+        if not DEBUG:
+            t = self.uploader.submit(self.thread_post, pose, self.frame,2)
+            if t.result is not None:
+                print(t.result())
         
         self.scene.scene.scene.render_to_image(self.rgb_callback)
         self.scene.scene.scene.render_to_depth_image(self.depth_callback)
-        #RGB DEPTH AND POSE
-        #Send To Server
-        # print(self.rgb)
-        # print(self.depth)
-        # print(self.pose.shape)
-        # self.rgb_lock.release()
-        # self.depth_lock.release()
 
     def depth_callback(self,depth_image):
         depth = np.asarray(depth_image)
         print(self.frame,'done depth',depth.shape)
-        self.uploader.submit(self.thread_post, depth, self.frame)
+        if not DEBUG:
+            self.uploader.submit(self.thread_post, depth, self.frame, 1)
 
     def rgb_callback(self,rgb_image):
         rgb = np.asarray(rgb_image)
         print(self.frame,'done rgb',rgb.shape)
-        self.uploader.submit(self.thread_post, rgb, self.frame)
+        if not DEBUG:
+            self.uploader.submit(self.thread_post, rgb, self.frame, 0)
 
 def main():
     camera_config = {
