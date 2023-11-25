@@ -10,8 +10,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import socket
 import trimesh
-
-DEBUG = True
+import cv2
+DEBUG = False
 
 class LiveImapApp:
     LOAD_MESH = 1
@@ -23,6 +23,7 @@ class LiveImapApp:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if not DEBUG:
             self.sock.connect(("192.168.3.95", 34512)) # listening server
+        self.traj = np.loadtxt('/home/lot1aus/Desktop/sem7/irob/project/iRobbed/tragedy/traj_w_c.txt').reshape(-1,4,4)
         self.uploader = ThreadPoolExecutor(max_workers=1) # forced to remain sequential
         self.frame = 0
         self.capturing = False
@@ -75,8 +76,8 @@ class LiveImapApp:
                     self.window, self.capture_rgbdT)
                 
                 #Sending to Server
-                self.frame += 1
                 time.sleep(2.5)
+                self.frame += 1
             print("[debug] Stop Capturing")
         threading.Thread(target=thread_capture).start()
     
@@ -115,13 +116,6 @@ class LiveImapApp:
         self.camera = self.scene.scene.view.get_camera()
         self.menu.set_enabled(LiveImapApp.CAPTURE,True)
 
-    def opengl_to_opencv_camera(self,transform=None):
-        if transform is None:
-            transform = np.eye(4)
-        return transform @ trimesh.transformations.rotation_matrix(
-            np.deg2rad(-180), [1, 0, 0]
-        )
-
     def thread_post(self, data, frame, type):
         print('[socket] Posting...',frame,data.shape)
         #Post data to server
@@ -142,13 +136,43 @@ class LiveImapApp:
         self.sock.sendall(header)
         self.sock.sendall(data)
     
+
+    def opencv_to_opengl_camera(self,transform=None):
+        if transform is None:
+            transform = np.eye(4)
+        return transform @ trimesh.transformations.rotation_matrix(
+            np.deg2rad(180), [1, 0, 0]
+        )
+
+    def opengl_to_opencv_camera(self,transform=None):
+        if transform is None:
+            transform = np.eye(4)
+        return transform @ trimesh.transformations.rotation_matrix(
+            np.deg2rad(-180), [1, 0, 0]
+        )
+
     def get_pose(self):
         pose = np.asarray(self.camera.get_model_matrix())
-        # T = np.array([[1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]])
+        # T = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])
+        # return np.linalg.inv(pose)
         return (pose @ self.opengl_to_opencv_camera()).astype(np.float32)
+
+    def set_camera(self,M):
+        #center is lookat_
+        #eye is eye_
+        #up is up
+        up = -M[1, 0:3][:, np.newaxis]
+        eye = (np.linalg.inv(M[:3,:3]) @ -M[:3,3])[:, np.newaxis]
+        front = -M[2, 0:3][:, np.newaxis]
+        center = eye - front
+        return center, eye, up
+    
 
     def capture_rgbdT(self):
         # pose = np.linalg.inv(np.asarray(self.camera.get_model_matrix()))
+        print(self.frame)
+        c,e,u = self.set_camera(np.linalg.inv(self.traj[self.frame]))
+        self.camera.look_at(c,e,u)
         pose = self.get_pose()
         if not DEBUG:
             t = self.uploader.submit(self.thread_post, pose, self.frame,2)
@@ -160,19 +184,25 @@ class LiveImapApp:
 
     def depth_callback(self,depth_image):
         depth = (np.asarray(depth_image)).astype(np.float32)
+        print(np.min(depth),np.max(depth),np.mean(depth),np.std(depth))
         z_near = self.camera.get_near()
         z_far = self.camera.get_far()
+        print(z_near,z_far)
+        # depth = z_near/depth
         depth = (2.0*z_near*z_far)/ \
             (z_near + z_far - (2*depth - 1.0) * (z_far - z_near))
         depth = np.clip(np.round(1000*depth),0.0,65535.0)
-        
         if DEBUG:
             print(np.min(depth),np.max(depth),np.mean(depth),np.std(depth))
+            print(depth)
+            cv2.imwrite('pred_3.png',depth.astype(np.uint16))
+            self._on_menu_quit()
             # plt.imshow(depth,cmap='gray')
             # plt.show()
         print(self.frame,'done depth',depth.shape)
         if not DEBUG:
             self.uploader.submit(self.thread_post, depth, self.frame, 1)
+
 
     def rgb_callback(self,rgb_image):
         rgb = np.asarray(rgb_image)
