@@ -270,6 +270,7 @@ class sceneObject:
     def get_bound(self, intrinsic_open3d):
         # get 3D boundary from posed depth img   todo update sparse pc when append frame
         pcs = open3d.geometry.PointCloud()
+        print("[vMAP] generating point cloud")
         for kf_id in range(self.n_keyframes):
             mask = self.rgbs_batch[kf_id, :, :, self.state_idx].squeeze() == self.this_obj
             depth = self.depth_batch[kf_id].cpu().clone()
@@ -280,6 +281,7 @@ class sceneObject:
             pc = open3d.geometry.PointCloud.create_from_depth_image(depth=open3d.geometry.Image(np.asarray(depth, order="C")), intrinsic=intrinsic_open3d, extrinsic=T_CW)
             # self.pc += pc
             pcs += pc
+        print("[vMAP] keyframe fine")
 
         # # get minimal oriented 3d bbox
         # try:
@@ -289,12 +291,18 @@ class sceneObject:
         #     return None
         # trimesh has a better minimal bbox implementation than open3d
         try:
+            print("[vMAP] Entered try; hull", len(np.array(pcs.points)))
+            print(np.array(pcs.points))
             transform, extents = trimesh.bounds.oriented_bounds(np.array(pcs.points))  # pc
+            print("[vMAP] oriented get")
             transform = np.linalg.inv(transform)
+            print("[vMAP] HULL Succeeded")
         except scipy.spatial._qhull.QhullError:
+            print("[vMAP]00000000000000000000000000000000000000000000000000000000 ERRORED")
             print("too few pcs obj ")
             return None
 
+        print("[vMAP] Getting bbox 3d")
         for i in range(extents.shape[0]):
             extents[i] = np.maximum(extents[i], 0.10)  # at least rendering 10cm
         bbox = utils.BoundingBox()
@@ -302,6 +310,7 @@ class sceneObject:
         bbox.R = transform[:3, :3]
         bbox.extent = extents
         bbox3d = open3d.geometry.OrientedBoundingBox(bbox.center, bbox.R, bbox.extent)
+        print("[vMAP] Got BBOX dd")
 
         min_extent = 0.05
         bbox3d.extent = np.maximum(min_extent, bbox3d.extent)

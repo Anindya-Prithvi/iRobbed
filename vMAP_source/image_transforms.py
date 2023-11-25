@@ -28,7 +28,7 @@ class DepthFilter(object):
         self.max_depth = max_depth
 
     def __call__(self, depth):
-        far_mask = depth > self.max_depth
+        far_mask = depth >= self.max_depth
         depth[far_mask] = 0.
         return depth
 

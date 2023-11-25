@@ -1,5 +1,6 @@
 import time
 import loss
+from data_generation.transformation import opengl_to_opencv_camera
 from vmap import *
 import utils
 import open3d
@@ -12,6 +13,8 @@ import shutil
 import pickle
 from frames_receiver import SimpleReceiver
 from concurrent.futures import ThreadPoolExecutor
+import secrets
+thissession = secrets.token_hex(8)
 
 
 if __name__ == "__main__":
@@ -138,6 +141,8 @@ if __name__ == "__main__":
                     data.append(receiver.receive())
                     data.append(receiver.receive())
                     data.append(receiver.receive())
+                    import matplotlib.pyplot as plt
+                    
                 else:
                     # now load the images here
                     import cv2
@@ -177,24 +182,44 @@ if __name__ == "__main__":
                     if type == 0:
                         d = d.reshape((cfg.H, cfg.W, 3))
                         sample["image"] = torch.from_numpy(d)
+                        plt.imsave(f"experimental_dumps/{frame_id}-image.png",sample["image"].numpy())
+                    
                         if not LIVEEXPERIMENT:
                             sample["image"] = sample["image"].permute(1,0,2)
 
                     elif type == 1:
-                        # sample["depth"] = torch.from_numpy(d)
+                        # import cv2
+                        # # sample["depth"] = torch.from_numpy(d)
+                        # depthbasepath = "../datasets/room_0/imap/00/depth/depth_"
+                        # depthpth = depthbasepath+str(sample["frame_id"])+".png"
+                        # depth_data = cv2.imread(depthpth, -1).astype(np.float32) #.transpose(1,0)
+                        # d = depth_data
+
                         d = d.reshape((cfg.H, cfg.W))
                         from torchvision import transforms
                         import image_transforms
+
+                        print("XDXDXDXDDXDXD: ",np.mean(d), np.std(d), np.max(d), np.min(d))
                         dt = transforms.Compose(
-                                [image_transforms.DepthScale(cfg.depth_scale),
-                                image_transforms.DepthFilter(cfg.max_depth)])
+                                [
+                                    image_transforms.DepthScale(cfg.depth_scale),
+                                    image_transforms.DepthFilter(cfg.max_depth)
+                                ])
+                        
                         sample["depth"] = torch.from_numpy(dt(d))
+                        print("XDXDXDXDDXDXD: ",torch.mean(sample["depth"]), torch.std(sample["depth"]), torch.max(sample["depth"]), torch.min(sample["depth"]))
+                        plt.imsave(f"experimental_dumps/{frame_id}-depth.png",sample["depth"].numpy())
                         if not LIVEEXPERIMENT:
                             sample["depth"] = sample["depth"].permute(1,0)
                     else:
                         sample["T"] = torch.from_numpy(d)
                         if not LIVEEXPERIMENT:
                             sample["T"] = sample["T"].reshape(4,4)
+                            # print(sample["T"])
+                            # sample["T"] = torch.from_numpy(sample["T"] @ opengl_to_opencv_camera())
+                            # print(sample["T"])
+                        else:
+                            sample["T"] = torch.from_numpy(d)
 
 
                 if retry:
@@ -449,16 +474,24 @@ if __name__ == "__main__":
             print("Deepcopy Time:",time.time() - st)
 
 
-            def pickle_poster(vis_dict_t):
+            def pickle_poster(vis_dict_t, furfr):
                 # p_obj is supposed to be a dumps obj
                 #Run in other thread
+                print("Activated pickle poster with ", len(vis_dict_t.items()), vis_dict_t.items())
                 
                 for obj_id, obj_k in vis_dict_t.items():
+                    print(obj_id, obj_k)
+                    print("will get bounds now")
+
                     bound = obj_k.get_bound(intrinsic_open3d)
+                    print("bounds is done")
+
                     if bound is None:
                         print("get bound failed obj ", obj_id)
                         continue
                     adaptive_grid_dim = int(np.minimum(np.max(bound.extent)//cfg.live_voxel_size+1, cfg.grid_dim))
+                    print("adaptive grid dim", adaptive_grid_dim)
+                    print("will activate meshing")
                     mesh = obj_k.trainer.meshing(bound, obj_k.obj_center, grid_dim=adaptive_grid_dim)
                     if mesh is None:
                         print("meshing failed obj ", obj_id)
@@ -480,12 +513,12 @@ if __name__ == "__main__":
                         sock.close()
                     else:
                         
-                        fn = f"meshed_ace_{str(frame_id).zfill(6)}.pkl"
-                        with open(f"experimental_dumps/{fn}", "wb") as f:
+                        fn = f"_ace_{str(furfr).zfill(6)}.pkl"
+                        with open(f"experimental_dumps/{thissession}-{fn}", "wb") as f:
                             f.write(pk)
 
 
-            l = darkThreader.submit(pickle_poster, vis_dict_copy)
+            l = darkThreader.submit(pickle_poster, vis_dict_copy, frame_id)
             if LIVEEXPERIMENT:
                 l.result()
 

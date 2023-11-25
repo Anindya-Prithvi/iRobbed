@@ -5,9 +5,14 @@ import numpy as np
 
 def marching_cubes(occupancy, level=0.5):
     try:
+        # setting level to none
         vertices, faces, vertex_normals, _ = skimage.measure.marching_cubes(    #marching_cubes_lewiner(    #marching_cubes(
             occupancy, level=level, gradient_direction='ascent')
-    except (RuntimeError, ValueError):
+    except Exception as e:
+       print("00000000000000000000000000000000000000EXCEPTION OCCURED")
+       print(e)
+       print(e.message, e.args)
+       print(e.with_traceback())
        return None
 
     dim = occupancy.shape[0]
